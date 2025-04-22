@@ -5,6 +5,7 @@ import terser from '@rollup/plugin-terser';
 import resolve from '@rollup/plugin-node-resolve';
 import livereload from 'rollup-plugin-livereload';
 import css from 'rollup-plugin-css-only';
+import dev from 'rollup-plugin-dev';
 
 const production = !process.env.ROLLUP_WATCH;
 
@@ -62,7 +63,16 @@ export default {
 
 		// In dev mode, call `npm run start` once
 		// the bundle has been generated
-		!production && serve(),
+		// !production && serve(),
+        
+		!production && dev({
+            dirs: ['public'],
+            spa: 'public/index.html',
+            port: 8080,
+            proxy: [
+                { from: '/api', to: "http://dbrobo1.mf.bmstu.ru/db_api_REST" },
+            ],
+        }),
 
 		// Watch the `public` directory and refresh the
 		// browser on changes when not in production
