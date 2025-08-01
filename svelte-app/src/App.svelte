@@ -1,3 +1,5 @@
+ <!-- local ip after running rollup http://localhost:8080 -->
+
 <!-- <script>
     import { onMount } from 'svelte';
     import * as d3 from 'd3';
