@@ -68,10 +68,11 @@
             let endHours = (13).toString().padStart(2, "0");
             let endMinutes = (7).toString().padStart(2, "0");
             let endSeconds = (40).toString().padStart(2, "0");
-            // http://dbrobo1.mf.bmstu.ru/db_api_REST/calibr/log/2025-04-18%2012:00:00/2025-04-19%2012:00:00/
+            // http://dbrobo1.mf.bmstu.ru/db_api_REST/not_calibr/log/2025-07-20%2012:00:00/2025-08-01%2012:00:00/
             const response = await fetch(
-                `/api/calibr/log/${startYear}-${startMonth}-${startDay}%20${startHours}:${startMinutes}:${startSeconds}/${endYear}-${endMonth}-${endDay}%20${endHours}:${endMinutes}:${endSeconds}/`,
+                `/api/not_calibr/log/${startYear}-${startMonth}-${startDay}%20${startHours}:${startMinutes}:${startSeconds}/${endYear}-${endMonth}-${endDay}%20${endHours}:${endMinutes}:${endSeconds}/`,
             );
+
             // const response = await fetch("/api/calibr/log/2025-04-22%2012:07:40/2025-04-22%2013:07:40/");
             const jsonData = await response.json();
             const jsonStr = JSON.stringify(jsonData, null, 2);
@@ -95,7 +96,7 @@
 
 <main>
     <img src="/favicon.jpg" alt="teto" />
-    <p>SVo SVo</p>
+    <p>svo</p>
 </main>
 
 <!-- <script>
