@@ -236,7 +236,6 @@
   let selectedValues = [];
   let isLoading = false;
 
-  // Загрузка данных
   async function loadData() {
     try {
       let startDate = "";
