@@ -11,54 +11,62 @@
   let selectedValues = [];
   let isLoading = false;
   let useLocalData = true;
+  let debug = false;
 
   let startDate = "";
   let startTime = "";
   let endDate = "";
   let endTime = "";
 
-  // Функция переключения источника данных
+
+  let bgAnimation = {
+    x: 0,
+    y: 0,
+    xDirection: 1,
+    yDirection: 1,
+    speed: 0.5
+  };
   function toggleDataSource() {
     useLocalData = !useLocalData;
   }
+
+  function animateBackground() {
+    if (typeof window === 'undefined') return;
+    
+    bgAnimation.x += bgAnimation.speed * bgAnimation.xDirection;
+    bgAnimation.y += bgAnimation.speed * bgAnimation.yDirection;
+    
+    if (bgAnimation.x > 50 || bgAnimation.x < -50) bgAnimation.xDirection *= -1;
+    if (bgAnimation.y > 50 || bgAnimation.y < -50) bgAnimation.yDirection *= -1;
+    
+    const bgElement = document.querySelector('.animated-bg');
+    if (bgElement) {
+      bgElement.style.transform = `translate(${bgAnimation.x}px, ${bgAnimation.y}px)`;
+    }
+    
+    requestAnimationFrame(animateBackground);
+  }
+
+  onMount(() => {
+    animateBackground();
+  });
 
   async function loadData() {
     try {
       isLoading = true;
       
       if (useLocalData) {
-        // Используем локальный файл
         const response = await fetch("./data.json");
         jsonData = await response.json();
       } else {
-        // Используем API с выбранным диапазоном дат
         if (!startDate || !endDate) {
           alert("Выберите диапазон дат для загрузки из API");
           return;
         }
+        
         let sdate = new Date(...getDateTime(startDate, startTime));
-        // let sdate = new Date(
-        //   getDateTime(startDate, startTime).year,
-        //   getDateTime(startDate, startTime).month - 1,
-        //   getDateTime(startDate, startTime).day,
-        //   getDateTime(startDate, startTime).hour,
-        //   getDateTime(startDate, startTime).minute,
-        //   getDateTime(startDate, startTime).second,
-        // );
-        console.log(sdate);
-        console.log(startDate);
-        console.log(startTime);
-        console.log(Date(Date.parse(startDate + "T" + startTime)).toString());
-
-        let edate = new Date(
-          getDateTime(endDate, endTime).year,
-          getDateTime(endDate, endTime).month - 1,
-          getDateTime(endDate, endTime).day,
-          getDateTime(endDate, endTime).hour,
-          getDateTime(endDate, endTime).minute,
-          getDateTime(endDate, endTime).second,
-        );
-
+        let edate = new Date(...getDateTime(endDate, endTime));
+        
         if (sdate > edate) {
           alert("Начальная дата больше конечной! Измените для продолжения.");
           return;
@@ -79,7 +87,7 @@
         const endSeconds = edate.getSeconds().toString().padStart(2, "0");
 
         const response = await fetch(
-          `/api/not_calibr/log/${startYear}-${startMonth}-${startDay}%20${startHours}:${startMinutes}:${startSeconds}/${endYear}-${endMonth}-${endDay}%20${endHours}:${endMinutes}:${endSeconds}/`,
+          `/api/calibr/log/${startYear}-${startMonth}-${startDay}%20${startHours}:${startMinutes}:${startSeconds}/${endYear}-${endMonth}-${endDay}%20${endHours}:${endMinutes}:${endSeconds}/`,
         );
         jsonData = await response.json();
       }
@@ -129,10 +137,8 @@
     }
   }
 
-
   function drawChart() {
     if (!svgRef || selectedValues.length === 0) return;
-
 
     d3.select(svgRef).selectAll("*").remove();
 
@@ -146,12 +152,10 @@
       .append("g")
       .attr("transform", `translate(${margin.left},${margin.top})`);
 
-
     const data = selectedValues.map(d => ({
       x: new Date(d.timestamp),
       y: d.value
     })).sort((a, b) => a.x - b.x);
-
 
     const x = d3.scaleTime()
       .domain(d3.extent(data, d => d.x))
@@ -161,11 +165,9 @@
       .domain([d3.min(data, d => d.y) * 0.95, d3.max(data, d => d.y) * 1.05])
       .range([height, 0]);
 
-
     const line = d3.line()
       .x(d => x(d.x))
       .y(d => y(d.y));
-
 
     svg.append("path")
       .datum(data)
@@ -249,15 +251,18 @@
     return [ year, month, day, hour, minute, second ];
   }
 </script>
+{#if debug}
+<div class="animated-bg"></div>
+{/if}
 
 <div class="container">
   <div class="data-source-toggle">
     <label>Источник данных:</label>
     <button on:click={toggleDataSource} class:active={useLocalData}>
-      {useLocalData ? '📁 Локальный файл' : '🌐 API'}
+      {useLocalData ? 'Тестовый набор данных' : 'Данные с удалённого сервера'}
     </button>
     <span class="source-info">
-      {useLocalData ? 'Используется data.json' : 'Используется API с выбранным диапазоном'}
+      {useLocalData ? 'Используется тестовый файл' : 'Используются данные полученные при помощи запроса с сервера'}
     </span>
   </div>
 
@@ -278,12 +283,11 @@
   {/if}
 
   <button on:click={loadData} disabled={isLoading}>
-    {isLoading ? "Загрузка..." : "Загрузить данные"}
+    {isLoading ? "Загрузка..." : "Запросить данные"}
   </button>
 
   {#if devicesHierarchy.size > 0}
     <div class="selectors">
-      <!-- Выбор uName -->
       <div class="select-group">
         <label>Выберите устройство:</label>
         <select bind:value={selectedUName}>
@@ -294,7 +298,6 @@
         </select>
       </div>
 
-      <!-- Выбор serial -->
       {#if selectedUName}
         <div class="select-group">
           <label>Выберите serial:</label>
@@ -307,7 +310,6 @@
         </div>
       {/if}
 
-      <!-- Выбор did -->
       {#if selectedSerial}
         <div class="select-group">
           <label>Выберите параметр:</label>
@@ -321,7 +323,6 @@
       {/if}
     </div>
 
-    <!-- График -->
     {#if selectedValues.length > 0}
       <div class="chart-container">
         <h3>График: {selectedUName} / {selectedSerial} / {selectedDid}</h3>
@@ -329,7 +330,7 @@
       </div>
     {/if}
 
-    {#if selectedValues.length > 0}
+    {#if selectedValues.length > 0 && debug}
       <div class="results">
         <h3>
           {selectedUName} / {selectedSerial} / {selectedDid}
@@ -359,7 +360,7 @@
             </tbody>
           </table>
         </div>
-
+        {#if debug}
         <div class="stats">
           <h4>Статистика:</h4>
           <p>Количество измерений: {selectedValues.length}</p>
@@ -378,7 +379,9 @@
             </p>
           {/if}
         </div>
+        {/if}
       </div>
+    
     {:else if selectedDid}
       <div class="no-data">
         <p>Нет данных для выбранного параметра</p>
@@ -388,10 +391,27 @@
 </div>
 
 <style>
+  .animated-bg {
+    position: fixed;
+    top: -10%;
+    left: -10%;
+    width: 120%;
+    height: 120%;
+    z-index: -1;
+    background: url('/favicon.gif') center/cover;
+    opacity: 0.5; 
+    pointer-events: none;
+  }
+
   .container {
     max-width: 1200px;
     margin: 0 auto;
     padding: 20px;
+    position: relative;
+    z-index: 1;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 10px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
   }
 
   .data-source-toggle {
@@ -451,11 +471,18 @@
     cursor: pointer;
     margin-bottom: 20px;
     font-size: 14px;
+    transition: all 0.3s ease;
+  }
+
+  button:hover:not(:disabled) {
+    background: #3d8b40;
+    transform: translateY(-2px);
   }
 
   button:disabled {
     background: #cccccc;
     cursor: not-allowed;
+    transform: none;
   }
 
   .selectors {
@@ -482,11 +509,13 @@
     border: 2px solid #ddd;
     border-radius: 5px;
     font-size: 14px;
+    transition: border-color 0.3s ease;
   }
 
   select:focus, input:focus {
     outline: none;
     border-color: #4caf50;
+    box-shadow: 0 0 5px rgba(76, 175, 80, 0.3);
   }
 
   .chart-container {
@@ -528,6 +557,8 @@
   .values-table {
     overflow-x: auto;
     margin-bottom: 20px;
+    max-height: 400px;
+    overflow-y: auto;
   }
 
   table {
@@ -545,6 +576,8 @@
   th {
     background: #f0f0f0;
     font-weight: bold;
+    position: sticky;
+    top: 0;
   }
 
   .timestamp {
@@ -596,5 +629,15 @@
     .select-group, .date-group {
       width: 100%;
     }
+    
+    .container {
+      margin: 10px;
+      padding: 15px;
+    }
+    
+    .animated-bg {
+      opacity: 0.05;
+    }
   }
+
 </style>
