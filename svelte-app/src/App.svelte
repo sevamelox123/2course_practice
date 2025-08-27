@@ -9,6 +9,7 @@
   let selectedSerial = "";
   let selectedDid = "";
   let selectedValues = [];
+  let processedData = [];
   let isLoading = false;
   let useLocalData = true;
   let debug = false;
@@ -18,6 +19,9 @@
   let endDate = "2025-08-25";
   let endTime = "15:59:29";
 
+  // Новые переменные для осреднения и типа графика
+  let averagingType = "raw";
+  let chartType = "line";
 
   let bgAnimation = {
     x: 0,
@@ -26,6 +30,7 @@
     yDirection: 1,
     speed: 0.5
   };
+  
   function toggleDataSource() {
     useLocalData = !useLocalData;
   }
@@ -137,8 +142,147 @@
     }
   }
 
+  // Функции для обработки данных
+  function processData() {
+    if (selectedValues.length === 0) {
+      processedData = [];
+      return;
+    }
+    
+    const sortedData = [...selectedValues].sort((a, b) => a.timestamp - b.timestamp);
+    
+    switch (averagingType) {
+      case "raw":
+        processedData = sortedData;
+        break;
+        
+      case "hourly":
+        processedData = calculateAverages(sortedData, 60);
+        break;
+        
+      case "3hourly":
+        processedData = calculateAverages(sortedData, 180);
+        break;
+        
+      case "daily":
+        processedData = calculateAverages(sortedData, 1440);
+        break;
+        
+      case "daily_minmax":
+        processedData = calculateDailyMinMax(sortedData);
+        break;
+    }
+    
+    // Перерисовываем график после обработки данных
+    setTimeout(drawChart, 100);
+  }
+  
+  function calculateAverages(data, minutesInterval) {
+    if (data.length === 0) return [];
+    
+    const result = [];
+    let currentGroup = [];
+    let groupStartTime = new Date(data[0].timestamp);
+    
+    // Округляем до начала интервала
+    groupStartTime.setMinutes(Math.floor(groupStartTime.getMinutes() / minutesInterval) * minutesInterval);
+    groupStartTime.setSeconds(0);
+    groupStartTime.setMilliseconds(0);
+    
+    let groupEndTime = new Date(groupStartTime);
+    groupEndTime.setMinutes(groupEndTime.getMinutes() + minutesInterval);
+    
+    data.forEach(item => {
+      const itemTime = new Date(item.timestamp);
+      
+      if (itemTime < groupEndTime) {
+        currentGroup.push(item);
+      } else {
+        if (currentGroup.length > 0) {
+          const avgValue = currentGroup.reduce((sum, d) => sum + d.value, 0) / currentGroup.length;
+          result.push({
+            timestamp: new Date(groupStartTime.getTime() + (groupEndTime.getTime() - groupStartTime.getTime()) / 2),
+            value: avgValue,
+            count: currentGroup.length,
+            min: Math.min(...currentGroup.map(d => d.value)),
+            max: Math.max(...currentGroup.map(d => d.value))
+          });
+        }
+        
+        currentGroup = [item];
+        groupStartTime = new Date(groupEndTime);
+        groupEndTime = new Date(groupStartTime);
+        groupEndTime.setMinutes(groupEndTime.getMinutes() + minutesInterval);
+      }
+    });
+    
+    // Добавляем последнюю группу
+    if (currentGroup.length > 0) {
+      const avgValue = currentGroup.reduce((sum, d) => sum + d.value, 0) / currentGroup.length;
+      result.push({
+        timestamp: new Date(groupStartTime.getTime() + (groupEndTime.getTime() - groupStartTime.getTime()) / 2),
+        value: avgValue,
+        count: currentGroup.length,
+        min: Math.min(...currentGroup.map(d => d.value)),
+        max: Math.max(...currentGroup.map(d => d.value))
+      });
+    }
+    
+    return result;
+  }
+  
+  function calculateDailyMinMax(data) {
+    if (data.length === 0) return [];
+    
+    const result = [];
+    const groups = {};
+    
+    // Группируем по дням
+    data.forEach(item => {
+      const dateKey = new Date(item.timestamp);
+      dateKey.setHours(0, 0, 0, 0);
+      const key = dateKey.toISOString().split('T')[0];
+      
+      if (!groups[key]) {
+        groups[key] = [];
+      }
+      
+      groups[key].push(item);
+    });
+    
+    // Для каждой группы находим min, max и среднее
+    for (const dateKey in groups) {
+      const group = groups[dateKey];
+      const min = Math.min(...group.map(d => d.value));
+      const max = Math.max(...group.map(d => d.value));
+      const avg = group.reduce((sum, d) => sum + d.value, 0) / group.length;
+      
+      // Добавляем три точки: min, avg, max
+      const date = new Date(dateKey);
+      result.push({
+        timestamp: new Date(date.setHours(6, 0, 0, 0)),
+        value: min,
+        type: "min"
+      });
+      
+      result.push({
+        timestamp: new Date(date.setHours(12, 0, 0, 0)),
+        value: avg,
+        type: "avg"
+      });
+      
+      result.push({
+        timestamp: new Date(date.setHours(18, 0, 0, 0)),
+        value: max,
+        type: "max"
+      });
+    }
+    
+    return result.sort((a, b) => a.timestamp - b.timestamp);
+  }
+
   function drawChart() {
-    if (!svgRef || selectedValues.length === 0) return;
+    if (!svgRef || processedData.length === 0) return;
 
     d3.select(svgRef).selectAll("*").remove();
 
@@ -152,9 +296,13 @@
       .append("g")
       .attr("transform", `translate(${margin.left},${margin.top})`);
 
-    const data = selectedValues.map(d => ({
+    const data = processedData.map(d => ({
       x: new Date(d.timestamp),
-      y: d.value
+      y: d.value,
+      min: d.min,
+      max: d.max,
+      type: d.type,
+      count: d.count
     })).sort((a, b) => a.x - b.x);
 
     const x = d3.scaleTime()
@@ -162,29 +310,26 @@
       .range([0, width]);
 
     const y = d3.scaleLinear()
-      .domain([d3.min(data, d => d.y) * 0.95, d3.max(data, d => d.y) * 1.05])
+      .domain([
+        d3.min(data, d => (d.min !== undefined ? d.min : d.y)) * 0.95, 
+        d3.max(data, d => (d.max !== undefined ? d.max : d.y)) * 1.05
+      ])
       .range([height, 0]);
 
-    const line = d3.line()
-      .x(d => x(d.x))
-      .y(d => y(d.y));
+    // Рисуем график в зависимости от выбранного типа
+    switch (chartType) {
+      case "line":
+        drawLineChart(svg, data, x, y, width, height);
+        break;
+      case "bar":
+        drawBarChart(svg, data, x, y, width, height);
+        break;
+      case "area":
+        drawAreaChart(svg, data, x, y, width, height);
+        break;
+    }
 
-    svg.append("path")
-      .datum(data)
-      .attr("fill", "none")
-      .attr("stroke", "steelblue")
-      .attr("stroke-width", 2)
-      .attr("d", line);
-
-    svg.selectAll(".dot")
-      .data(data)
-      .enter().append("circle")
-      .attr("class", "dot")
-      .attr("cx", d => x(d.x))
-      .attr("cy", d => y(d.y))
-      .attr("r", 3)
-      .attr("fill", "steelblue");
-
+    // Оси
     svg.append("g")
       .attr("transform", `translate(0,${height})`)
       .call(d3.axisBottom(x));
@@ -192,6 +337,7 @@
     svg.append("g")
       .call(d3.axisLeft(y));
 
+    // Подписи осей
     svg.append("text")
       .attr("transform", `translate(${width / 2},${height + margin.top + 20})`)
       .style("text-anchor", "middle")
@@ -204,27 +350,126 @@
       .style("text-anchor", "middle")
       .text(`${selectedDid} (${getUnit(selectedDid)})`);
   }
-
-  $: uNames = Array.from(devicesHierarchy.keys()).sort();
-  $: serials = selectedUName
-    ? Array.from(devicesHierarchy.get(selectedUName).keys()).sort()
-    : [];
-  $: dids =
-    selectedUName && selectedSerial
-      ? Array.from(
-          devicesHierarchy.get(selectedUName).get(selectedSerial).keys(),
-        ).sort()
-      : [];
-
-  $: if (selectedUName && selectedSerial && selectedDid) {
-    selectedValues =
-      devicesHierarchy
-        .get(selectedUName)
-        .get(selectedSerial)
-        .get(selectedDid) || [];
-    setTimeout(drawChart, 100);
-  } else {
-    selectedValues = [];
+  
+  function drawLineChart(svg, data, x, y, width, height) {
+    // Основная линия
+    const line = d3.line()
+      .x(d => x(d.x))
+      .y(d => y(d.y));
+    
+    svg.append("path")
+      .datum(data)
+      .attr("fill", "none")
+      .attr("stroke", "steelblue")
+      .attr("stroke-width", 2)
+      .attr("d", line);
+    
+    // Для daily_minmax рисуем дополнительные линии
+    if (averagingType === "daily_minmax") {
+      const minData = data.filter(d => d.type === "min");
+      const maxData = data.filter(d => d.type === "max");
+      const avgData = data.filter(d => d.type === "avg");
+      
+      if (minData.length > 0) {
+        const minLine = d3.line()
+          .x(d => x(d.x))
+          .y(d => y(d.y));
+        
+        svg.append("path")
+          .datum(minData)
+          .attr("fill", "none")
+          .attr("stroke", "red")
+          .attr("stroke-width", 1)
+          .attr("stroke-dasharray", "5,5")
+          .attr("d", minLine);
+      }
+      
+      if (maxData.length > 0) {
+        const maxLine = d3.line()
+          .x(d => x(d.x))
+          .y(d => y(d.y));
+        
+        svg.append("path")
+          .datum(maxData)
+          .attr("fill", "none")
+          .attr("stroke", "green")
+          .attr("stroke-width", 1)
+          .attr("stroke-dasharray", "5,5")
+          .attr("d", maxLine);
+      }
+    }
+    
+    // Точки
+    svg.selectAll(".dot")
+      .data(data)
+      .enter().append("circle")
+      .attr("class", "dot")
+      .attr("cx", d => x(d.x))
+      .attr("cy", d => y(d.y))
+      .attr("r", 3)
+      .attr("fill", d => {
+        if (averagingType === "daily_minmax") {
+          if (d.type === "min") return "red";
+          if (d.type === "max") return "green";
+          return "steelblue";
+        }
+        return "steelblue";
+      });
+  }
+  
+  function drawBarChart(svg, data, x, y, width, height) {
+    // Определяем ширину столбцов в зависимости от интервала
+    let barWidth;
+    if (averagingType === "raw") {
+      // Для сырых данных используем очень узкие столбцы
+      barWidth = 2;
+    } else {
+      // Для осредненных данных вычисляем ширину на основе интервала
+      if (data.length > 1) {
+        const interval = (x(data[1].x) - x(data[0].x)) * 0.7;
+        barWidth = Math.max(2, Math.min(20, interval));
+      } else {
+        barWidth = 10;
+      }
+    }
+    
+    // Рисуем столбцы
+    svg.selectAll(".bar")
+      .data(data)
+      .enter().append("rect")
+      .attr("class", "bar")
+      .attr("x", d => x(d.x) - barWidth/2)
+      .attr("y", d => y(d.y))
+      .attr("width", barWidth)
+      .attr("height", d => height - y(d.y))
+      .attr("fill", "steelblue")
+      .attr("opacity", 0.7);
+  }
+  
+  function drawAreaChart(svg, data, x, y, width, height) {
+    // Область под кривой
+    const area = d3.area()
+      .x(d => x(d.x))
+      .y0(height)
+      .y1(d => y(d.y));
+    
+    svg.append("path")
+      .datum(data)
+      .attr("fill", "steelblue")
+      .attr("opacity", 0.3)
+      .attr("d", area);
+    
+    // Линия поверх области
+    const line = d3.line()
+      .x(d => x(d.x))
+      .y(d => y(d.y));
+    
+    svg.append("path")
+      .datum(data)
+      .attr("fill", "none")
+      .attr("stroke", "steelblue")
+      .attr("stroke-width", 2)
+      .attr("d", line);
   }
 
   function getUnit(did) {
@@ -250,7 +495,42 @@
     const second = partsArray2[2] || "00";
     return [ year, month, day, hour, minute, second ];
   }
+
+  // Обработчики изменений для выпадающих списков
+  function handleAveragingChange(e) {
+    averagingType = e.target.value;
+    processData();
+  }
+  
+  function handleChartTypeChange(e) {
+    chartType = e.target.value;
+    setTimeout(drawChart, 100);
+  }
+
+  $: uNames = Array.from(devicesHierarchy.keys()).sort();
+  $: serials = selectedUName
+    ? Array.from(devicesHierarchy.get(selectedUName).keys()).sort()
+    : [];
+  $: dids =
+    selectedUName && selectedSerial
+      ? Array.from(
+          devicesHierarchy.get(selectedUName).get(selectedSerial).keys(),
+        ).sort()
+      : [];
+
+  $: if (selectedUName && selectedSerial && selectedDid) {
+    selectedValues =
+      devicesHierarchy
+        .get(selectedUName)
+        .get(selectedSerial)
+        .get(selectedDid) || [];
+    processData();
+  } else {
+    selectedValues = [];
+    processedData = [];
+  }
 </script>
+
 {#if debug}
 <div class="animated-bg"></div>
 {/if}
@@ -323,7 +603,43 @@
       {/if}
     </div>
 
-    {#if selectedValues.length > 0}
+    {#if selectedUName && selectedSerial && selectedDid}
+      <div class="processing-controls">
+        <div class="select-group">
+          <label>Тип осреднения данных:</label>
+          <select value={averagingType} on:change={handleAveragingChange}>
+            <option value="raw">Исходные данные</option>
+            <option value="hourly">Осреднение за час</option>
+            <option value="3hourly">Осреднение за 3 часа</option>
+            <option value="daily">Осреднение за сутки</option>
+            <option value="daily_minmax">Min/Max за сутки</option>
+          </select>
+        </div>
+
+        <div class="select-group">
+          <label>Тип графика:</label>
+          <select value={chartType} on:change={handleChartTypeChange}>
+            <option value="line">Линейный</option>
+            <option value="bar">Столбчатый</option>
+            <option value="area">Областной</option>
+          </select>
+        </div>
+      </div>
+    {/if}
+
+    {#if processedData.length > 0}
+      <div class="data-info">
+        <p>
+          Показано {processedData.length} {processedData.length === 1 ? 'значение' : 
+          processedData.length < 5 ? 'значения' : 'значений'} 
+          {averagingType === "raw" ? 'исходных данных' : 
+           averagingType === "hourly" ? 'осредненных за час' :
+           averagingType === "3hourly" ? 'осредненных за 3 часа' :
+           averagingType === "daily" ? 'осредненных за сутки' :
+           'минимальных/максимальных значений за сутки'}
+        </p>
+      </div>
+
       <div class="chart-container">
         <h3>График: {selectedUName} / {selectedSerial} / {selectedDid}</h3>
         <svg bind:this={svgRef} class="chart"></svg>
@@ -336,56 +652,12 @@
           {selectedUName} / {selectedSerial} / {selectedDid}
           <span class="count">({selectedValues.length} значений)</span>
         </h3>
-
-        <!-- <div class="values-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Время измерения</th>
-                <th>Значение</th>
-                <th>ID записи</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each selectedValues as item}
-                <tr>
-                  <td class="timestamp">{item.timestamp.toLocaleString()}</td>
-                  <td class="value">
-                    {item.value.toFixed(2)}
-                    {getUnit(selectedDid)}
-                  </td>
-                  <td class="id">{item.originalId}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div> -->
-        {#if debug}
-        <!-- <div class="stats">
-          <h4>Статистика:</h4>
-          <p>Количество измерений: {selectedValues.length}</p>
-          {#if selectedValues.length > 0}
-            <p>
-              Минимальное значение: {Math.min(...selectedValues.map(v => v.value)).toFixed(2)}
-              {getUnit(selectedDid)}
-            </p>
-            <p>
-              Максимальное значение: {Math.max(...selectedValues.map(v => v.value)).toFixed(2)}
-              {getUnit(selectedDid)}
-            </p>
-            <p>
-              Среднее значение: {(selectedValues.reduce((sum, v) => sum + v.value, 0) / selectedValues.length).toFixed(2)}
-              {getUnit(selectedDid)}
-            </p>
-          {/if}
-        </div> -->
-        {/if}
       </div>
     
     {:else if selectedDid}
-      <!-- <div class="no-data">
+      <div class="no-data">
         <p>Нет данных для выбранного параметра</p>
-      </div> -->
+      </div>
     {/if}
   {/if}
 </div>
@@ -498,6 +770,13 @@
     min-width: 200px;
   }
 
+  .processing-controls {
+    display: flex;
+    gap: 20px;
+    margin: 20px 0;
+    flex-wrap: wrap;
+  }
+
   label {
     font-weight: bold;
     margin-bottom: 5px;
@@ -516,6 +795,20 @@
     outline: none;
     border-color: #4caf50;
     box-shadow: 0 0 5px rgba(76, 175, 80, 0.3);
+  }
+
+  .data-info {
+    margin: 10px 0;
+    padding: 10px;
+    background-color: #f0f8ff;
+    border-left: 4px solid #4caf50;
+    border-radius: 4px;
+  }
+
+  .data-info p {
+    margin: 0;
+    color: #2c5282;
+    font-style: italic;
   }
 
   .chart-container {
@@ -554,66 +847,6 @@
     font-weight: normal;
   }
 
-  .values-table {
-    overflow-x: auto;
-    margin-bottom: 20px;
-    max-height: 400px;
-    overflow-y: auto;
-  }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    background: white;
-  }
-
-  th, td {
-    padding: 12px;
-    text-align: left;
-    border: 1px solid #ddd;
-  }
-
-  th {
-    background: #f0f0f0;
-    font-weight: bold;
-    position: sticky;
-    top: 0;
-  }
-
-  .timestamp {
-    font-family: monospace;
-    color: #666;
-  }
-
-  .value {
-    font-weight: bold;
-    color: #2c5282;
-    font-size: 1.1em;
-  }
-
-  .id {
-    font-family: monospace;
-    color: #888;
-    font-size: 0.9em;
-  }
-
-  .stats {
-    background: white;
-    padding: 15px;
-    border-radius: 5px;
-    border: 1px solid #eee;
-  }
-
-  .stats h4 {
-    margin: 0 0 10px 0;
-    color: #333;
-  }
-
-  .stats p {
-    margin: 5px 0;
-    color: #555;
-  }
-
   .no-data {
     text-align: center;
     padding: 40px;
@@ -622,7 +855,7 @@
   }
 
   @media (max-width: 768px) {
-    .selectors, .date-controls {
+    .selectors, .date-controls, .processing-controls {
       flex-direction: column;
     }
 
@@ -639,5 +872,4 @@
       opacity: 0.05;
     }
   }
-
 </style>
