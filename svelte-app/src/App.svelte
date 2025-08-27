@@ -13,10 +13,10 @@
   let useLocalData = true;
   let debug = false;
 
-  let startDate = "";
-  let startTime = "";
-  let endDate = "";
-  let endTime = "";
+  let startDate = "2025-08-25";
+  let startTime = "13:59:29";
+  let endDate = "2025-08-25";
+  let endTime = "15:59:29";
 
 
   let bgAnimation = {
@@ -87,7 +87,7 @@
         const endSeconds = edate.getSeconds().toString().padStart(2, "0");
 
         const response = await fetch(
-          `/api/calibr/log/${startYear}-${startMonth}-${startDay}%20${startHours}:${startMinutes}:${startSeconds}/${endYear}-${endMonth}-${endDay}%20${endHours}:${endMinutes}:${endSeconds}/`,
+          `/api/not_calibr/log/${startYear}-${startMonth}-${startDay}%20${startHours}:${startMinutes}:${startSeconds}/${endYear}-${endMonth}-${endDay}%20${endHours}:${endMinutes}:${endSeconds}/`,
         );
         jsonData = await response.json();
       }
@@ -143,7 +143,7 @@
     d3.select(svgRef).selectAll("*").remove();
 
     const margin = { top: 20, right: 30, bottom: 50, left: 60 };
-    const width = 800 - margin.left - margin.right;
+    const width = 1200 - margin.left - margin.right;
     const height = 400 - margin.top - margin.bottom;
 
     const svg = d3.select(svgRef)
@@ -270,7 +270,7 @@
     <div class="date-controls">
       <div class="date-group">
         <label>Начальная дата и время:</label>
-        <input type="date" bind:value={startDate} />
+        <input type="date"  bind:value={startDate} />
         <input type="time" bind:value={startTime} step="1" />
       </div>
       
@@ -337,7 +337,7 @@
           <span class="count">({selectedValues.length} значений)</span>
         </h3>
 
-        <div class="values-table">
+        <!-- <div class="values-table">
           <table>
             <thead>
               <tr>
@@ -359,9 +359,9 @@
               {/each}
             </tbody>
           </table>
-        </div>
+        </div> -->
         {#if debug}
-        <div class="stats">
+        <!-- <div class="stats">
           <h4>Статистика:</h4>
           <p>Количество измерений: {selectedValues.length}</p>
           {#if selectedValues.length > 0}
@@ -378,14 +378,14 @@
               {getUnit(selectedDid)}
             </p>
           {/if}
-        </div>
+        </div> -->
         {/if}
       </div>
     
     {:else if selectedDid}
-      <div class="no-data">
+      <!-- <div class="no-data">
         <p>Нет данных для выбранного параметра</p>
-      </div>
+      </div> -->
     {/if}
   {/if}
 </div>
